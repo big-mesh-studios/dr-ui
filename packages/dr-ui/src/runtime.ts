@@ -58,6 +58,7 @@ export function createUniversalRuntime<TRoot, TNode>(
 ): UniversalRuntime<TRoot, TNode> {
   const root = backend.createRoot();
   const handles = new Map<string, RetainedHandleEntry<unknown, TNode>>();
+  const handleIds = new Map<TNode, string>();
 
   function registerHandle(
     desc: ElementDescriptor<any, any, any>,
@@ -68,6 +69,7 @@ export function createUniversalRuntime<TRoot, TNode>(
       const api = desc.handle(node);
       const id = desc.key !== undefined ? String(desc.key) : String(desc.type);
       handles.set(id, { id, node, api });
+      handleIds.set(node, id);
       if (capturedHandle) {
         capturedHandle.value = api;
       }
@@ -225,6 +227,15 @@ export function createUniversalRuntime<TRoot, TNode>(
       backend.removeChild(parent, node);
     }
     backend.disposeNode?.(node);
+
+    const id = handleIds.get(node);
+    if (id !== undefined) {
+      const entry = handles.get(id);
+      if (entry && entry.node === node) {
+        handles.delete(id);
+      }
+      handleIds.delete(node);
+    }
   }
 
   function getHandle<THandle>(id: string): RetainedHandleEntry<THandle, TNode> | undefined {

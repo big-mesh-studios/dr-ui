@@ -1,0 +1,19 @@
+/*
+ * Filtering is a single attribute flip on the app root. The browser's style
+ * engine hides the rows, so switching between All / Active / Completed never
+ * walks the todo list.
+ */
+.todoapp[data-filter="active"] .todo-list li.completed,
+.todoapp[data-filter="completed"] .todo-list li:not(.completed) {
+  display: none;
+}
+
+/* Keep the keyboard affordance for reordering visible in the demo info. */
+.info kbd {
+  border: 1px solid #bbb;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 0 3px;
+  font-family: inherit;
+  font-size: 10px;
+}
