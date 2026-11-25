@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check-types": "tsc --noEmit"
-  },
+    "check-types": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"  },
   "dependencies": {
     "@big-mesh-studios/dr-ui": "workspace:*"
   },

@@ -128,3 +128,18 @@ nodes, so it stays O(1) as the todo list grows.
 - `RetainedList` is the O(1) collection used by the demo. `append`, `remove`,
   `prepend`, `swapKeys`, `swapWithNext`, and `swapWithPrevious` mutate the
   linked order and the mounted node groups directly.
+
+## RMSL backend
+
+- `packages/dr-ui-rmsl` — a companion `RendererBackend` that targets the
+  `@random-mesh/rmsl` scene graph, so a Dr. UI tree builds 3D objects (meshes,
+  lights, groups) instead of DOM nodes.
+
+## Solar system demo
+
+```bash
+pnpm --filter solar-system dev
+```
+
+The demo lives in [`demos/solar-system`](demos/solar-system) and renders a
+declarative solar system through the RMSL backend.

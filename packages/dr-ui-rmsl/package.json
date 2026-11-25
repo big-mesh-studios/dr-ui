@@ -1,0 +1,30 @@
+{
+  "name": "@big-mesh-studios/dr-ui-rmsl",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/dr-ui-rmsl.js",
+      "require": "./dist/dr-ui-rmsl.cjs"
+    }
+  },
+  "main": "./dist/dr-ui-rmsl.cjs",
+  "module": "./dist/dr-ui-rmsl.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "vite build",
+    "check-types": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"  },
+  "dependencies": {
+    "@big-mesh-studios/dr-ui": "workspace:*",
+    "@random-mesh/rmsl": "^1.17.0"
+  },
+  "devDependencies": {
+    "@typescript/typescript6": "^6.0.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-dts": "^5.1.2"
+  }
+}

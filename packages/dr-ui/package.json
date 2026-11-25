@@ -15,8 +15,8 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "vite build",
-    "check-types": "tsc --noEmit"
-  },
+    "check-types": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"  },
   "devDependencies": {
     "@typescript/typescript6": "^6.0.2",
     "typescript": "^7.0.2",
