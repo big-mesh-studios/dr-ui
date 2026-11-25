@@ -1,5 +1,6 @@
 import {
   Fragment,
+  RankedGraph,
   RetainedList,
   createDomBackend,
   createUniversalRuntime,
@@ -124,6 +125,11 @@ class TodoApp {
   private readonly active = new Set<Todo>();
   private readonly completed = new Set<Todo>();
   private readonly filterLinks = new Map<Filter, HTMLAnchorElement>();
+  private readonly graph = new RankedGraph();
+
+  private totalCount = 0;
+  private completedCount = 0;
+  private remaining = 0;
 
   private appRoot!: HTMLElement;
   private newTodoInput!: HTMLInputElement;
@@ -169,6 +175,8 @@ class TodoApp {
       },
     });
 
+    this.setupDerivedGraph();
+
     const stored = loadStoredTodos();
     for (let i = 0; i < stored.length; i++) {
       const record = stored[i];
@@ -185,7 +193,7 @@ class TodoApp {
       if (item.order >= this.nextOrder) this.nextOrder = item.order + 1;
     }
 
-    this.updateChrome();
+    this.refreshDerived();
     this.applyFilter(filterFromHash());
 
     window.addEventListener("hashchange", () => {
@@ -478,7 +486,7 @@ class TodoApp {
     this.list.append(item);
     this.active.add(item);
     this.persistTodo(item);
-    this.updateChrome();
+    this.refreshDerived();
   }
 
   private removeTodo(item: Todo): void {
@@ -496,7 +504,7 @@ class TodoApp {
     this.completed.delete(item);
     this.list.remove(item.id);
     this.forgetTodo(item.id);
-    this.updateChrome();
+    this.refreshDerived();
   }
 
   private beginEdit(item: Todo): void {
@@ -536,7 +544,7 @@ class TodoApp {
     }
 
     this.persistTodo(item);
-    this.updateChrome();
+    this.refreshDerived();
   }
 
   private swapTodo(item: Todo, direction: "up" | "down"): void {
@@ -571,48 +579,106 @@ class TodoApp {
       return;
     }
 
-    if (this.active.size === 0) {
+    this.graph.batch(() => {
+      if (this.active.size === 0) {
+        for (
+          let item = firstOf(this.completed);
+          item;
+          item = firstOf(this.completed)
+        ) {
+          this.setTodoCompleted(item, false);
+        }
+      } else {
+        for (
+          let item = firstOf(this.active);
+          item;
+          item = firstOf(this.active)
+        ) {
+          this.setTodoCompleted(item, true);
+        }
+      }
+    });
+  }
+
+  private clearCompleted(): void {
+    this.graph.batch(() => {
       for (
         let item = firstOf(this.completed);
         item;
         item = firstOf(this.completed)
       ) {
-        this.setTodoCompleted(item, false);
+        this.removeTodo(item);
       }
-    } else {
-      for (let item = firstOf(this.active); item; item = firstOf(this.active)) {
-        this.setTodoCompleted(item, true);
-      }
-    }
+    });
   }
 
-  private clearCompleted(): void {
-    for (
-      let item = firstOf(this.completed);
-      item;
-      item = firstOf(this.completed)
-    ) {
-      this.removeTodo(item);
-    }
+  /**
+   * Derived UI state is a small ranked graph:
+   *
+   *   todos ─┬─> total-count ─────┬─> remaining ─┬─> toggle-all
+   *          └─> completed-count ─┘              └─> chrome
+   *
+   * Every source mutation invalidates `todos`. Flushing runs each derived node
+   * once, in rank order, so `remaining` always sees fresh counts and the
+   * downstream nodes always see fresh `remaining`. The whole chain is O(1)
+   * regardless of how many todos exist.
+   */
+  private setupDerivedGraph(): void {
+    this.graph.add({ id: "todos", run: () => {} });
+
+    this.graph.add({
+      id: "total-count",
+      dependencies: ["todos"],
+      run: () => {
+        this.totalCount = this.list.size;
+      },
+    });
+
+    this.graph.add({
+      id: "completed-count",
+      dependencies: ["todos"],
+      run: () => {
+        this.completedCount = this.completed.size;
+      },
+    });
+
+    this.graph.add({
+      id: "remaining",
+      dependencies: ["total-count", "completed-count"],
+      run: () => {
+        this.remaining = this.totalCount - this.completedCount;
+        this.backend.replaceText(this.countText, this.remaining);
+        this.backend.replaceText(
+          this.pluralText,
+          this.remaining === 1 ? " item left" : " items left",
+        );
+      },
+    });
+
+    this.graph.add({
+      id: "toggle-all",
+      dependencies: ["remaining"],
+      run: () => {
+        this.toggleAllInput.checked =
+          this.totalCount > 0 && this.remaining === 0;
+        this.toggleAllInput.indeterminate =
+          this.remaining > 0 && this.completedCount > 0;
+      },
+    });
+
+    this.graph.add({
+      id: "chrome",
+      dependencies: ["remaining"],
+      run: () => {
+        this.mainSection.hidden = this.totalCount === 0;
+        this.footer.hidden = this.totalCount === 0;
+        this.clearCompletedButton.hidden = this.completedCount === 0;
+      },
+    });
   }
 
-  private updateChrome(): void {
-    const remaining = this.active.size;
-    const total = this.list.size;
-
-    this.backend.replaceText(this.countText, remaining);
-    this.backend.replaceText(
-      this.pluralText,
-      remaining === 1 ? " item left" : " items left",
-    );
-
-    this.toggleAllInput.checked = total > 0 && remaining === 0;
-    this.toggleAllInput.indeterminate =
-      remaining > 0 && this.completed.size > 0;
-
-    this.mainSection.hidden = total === 0;
-    this.footer.hidden = total === 0;
-    this.clearCompletedButton.hidden = this.completed.size === 0;
+  private refreshDerived(): void {
+    this.graph.invalidate("todos").flush();
   }
 
   private applyFilter(filter: Filter): void {

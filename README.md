@@ -40,10 +40,28 @@ swap operation.
 There is no list-wide reconciliation on an item change, no signals, and no
 virtual DOM.
 
+## Derived state
+
+Derived values use a retained `RankedGraph` rather than manual UI updates or
+signals. Nodes declare dependencies, the compiler assigns topological ranks,
+and a flush runs every dirty node exactly once in rank order.
+
+The demo's footer/chrome graph is:
+
+```text
+todos ─┬─> total-count ─────┬─> remaining ─┬─> toggle-all
+       └─> completed-count ─┘              └─> chrome
+```
+
+A toggle invalidates only `todos`. The flush recomputes both counts, then
+`remaining`, then the dependent controls. The chain has a fixed number of
+nodes, so it stays O(1) as the todo list grows.
+
 ## Packages
 
-- `packages/dr-ui` — the retained runtime, DOM backend, `KeyedList`, and the
-  incremental `RetainedList`.
+- `packages/dr-ui` — the retained runtime, DOM backend, `KeyedList`,
+  `RetainedList`, and the `RankedGraph` / `RankedGraphCompiler` derived-state
+  scheduler.
 - `RetainedList` is the O(1) collection used by the demo. `append`, `remove`,
   `prepend`, `swapKeys`, `swapWithNext`, and `swapWithPrevious` mutate the
   linked order and the mounted node groups directly.
