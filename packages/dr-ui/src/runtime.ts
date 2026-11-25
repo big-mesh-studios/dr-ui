@@ -38,6 +38,21 @@ export interface MountedDescriptorResult<TNode, THandle = unknown> {
   readonly handle?: THandle;
 }
 
+/**
+ * Second argument passed to function components while the descriptor tree is
+ * mounted. Components that return no wrapper node (such as `<For>`) use
+ * `parent` to know where their retained content belongs.
+ */
+export interface MountContext<TRoot = unknown, TNode = unknown> {
+  /** Node the component's output is being attached to, if known. */
+  readonly parent: TRoot | TNode | undefined;
+  readonly backend: RendererBackend<TRoot, TNode>;
+  mountItem(
+    element: ElementDescriptor<any, any, any>,
+  ): MountedDescriptorResult<TNode, unknown>;
+  unmount(node: TNode, parent?: TRoot | TNode): void;
+}
+
 export interface UniversalRuntime<TRoot, TNode> {
   readonly root: TRoot;
   readonly backend: RendererBackend<TRoot, TNode>;
@@ -48,6 +63,7 @@ export interface UniversalRuntime<TRoot, TNode> {
   ): TNode[];
   mountItem(
     element: ElementDescriptor<any, any, any>,
+    parent?: TRoot | TNode,
   ): MountedDescriptorResult<TNode, unknown>;
   unmount(node: TNode, parent?: TRoot | TNode): void;
   getHandle<THandle>(id: string): RetainedHandleEntry<THandle, TNode> | undefined;
@@ -117,10 +133,13 @@ export function createUniversalRuntime<TRoot, TNode>(
   ): MountedDescriptorResult<TNode, unknown> {
     // 1. Functional component / builder (invoked once during retained assembly)
     if (typeof desc.type === "function") {
-      const result = desc.type({
-        ...desc.props,
-        children: desc.children,
-      });
+      const result = desc.type(
+        {
+          ...desc.props,
+          children: desc.children,
+        },
+        createMountContext(parent),
+      );
       return collectResult(result, parent, capturedHandle);
     }
 
@@ -217,9 +236,21 @@ export function createUniversalRuntime<TRoot, TNode>(
 
   function mountItem(
     element: ElementDescriptor<any, any, any>,
+    parent?: TRoot | TNode,
   ): MountedDescriptorResult<TNode, unknown> {
     const captured: { value?: unknown } = {};
-    return mountDescriptor(element, undefined, captured);
+    return mountDescriptor(element, parent, captured);
+  }
+
+  function createMountContext(
+    parent: TRoot | TNode | undefined,
+  ): MountContext<TRoot, TNode> {
+    return {
+      parent,
+      backend,
+      mountItem: (element) => mountItem(element, parent),
+      unmount,
+    };
   }
 
   function unmount(node: TNode, parent?: TRoot | TNode): void {

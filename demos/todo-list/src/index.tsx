@@ -1,4 +1,5 @@
 import {
+  For,
   Fragment,
   RankedGraph,
   RetainedList,
@@ -24,6 +25,8 @@ import "./style.css";
  *
  * JSX is compiled to the library's `h()` factory (see `vite.config.ts`), which
  * keeps the component code looking like Solid while producing retained nodes.
+ * `<For>` is the declarative mount point for the retained list: it looks like
+ * Solid's `<For>` but inserts rows directly instead of diffing an array.
  *
  * Complexity:
  *   add / remove / check / uncheck / edit / swap   O(1)
@@ -146,7 +149,11 @@ function createTodoApp(
   const countText = backend.createTextNode("0");
   const pluralText = backend.createTextNode(" items left");
 
-  let list!: RetainedList<Todo, HTMLElement, Node, TodoView>;
+  // The collection exists before the view; `<For>` attaches it during mount.
+  const todos = new RetainedList<Todo, HTMLElement, Node, TodoView>({
+    getKey: (item) => item.id,
+  });
+
   let editing: Todo | null = null;
   let nextId = 1;
   let nextOrder = 1;
@@ -158,7 +165,6 @@ function createTodoApp(
   let appRoot!: HTMLElement;
   let newTodoInput!: HTMLInputElement;
   let toggleAllInput!: HTMLInputElement;
-  let listHost!: HTMLUListElement;
   let mainSection!: HTMLElement;
   let footer!: HTMLElement;
   let clearCompletedButton!: HTMLButtonElement;
@@ -222,12 +228,11 @@ function createTodoApp(
           }}
         />
         <label for="toggle-all">Mark all as complete</label>
-        <ul
-          class="todo-list"
-          handle={(node: Node) => {
-            listHost = node as HTMLUListElement;
-          }}
-        />
+        <ul class="todo-list">
+          <For each={todos}>
+            {(item: Todo) => <TodoItem item={item} />}
+          </For>
+        </ul>
       </section>
     );
   }
@@ -434,14 +439,14 @@ function createTodoApp(
       editing: false,
     };
 
-    list.append(item);
+    todos.append(item);
     activeTodos.add(item);
     persistTodo(item);
     refreshDerived();
   }
 
   function removeTodo(item: Todo): void {
-    const entry = list.get(item.id);
+    const entry = todos.get(item.id);
     if (!entry) {
       activeTodos.delete(item);
       completedTodos.delete(item);
@@ -453,7 +458,7 @@ function createTodoApp(
 
     activeTodos.delete(item);
     completedTodos.delete(item);
-    list.remove(item.id);
+    todos.remove(item.id);
     forgetTodo(item.id);
     refreshDerived();
   }
@@ -462,15 +467,15 @@ function createTodoApp(
     if (editing && editing !== item) {
       finishEdit(editing, true);
     }
-    list.get(item.id)?.handle?.beginEdit();
+    todos.get(item.id)?.handle?.beginEdit();
   }
 
   function finishEdit(item: Todo, commit: boolean): void {
-    list.get(item.id)?.handle?.endEdit(commit);
+    todos.get(item.id)?.handle?.endEdit(commit);
   }
 
   function updateTodoLabel(item: Todo, label: string): void {
-    const entry = list.get(item.id);
+    const entry = todos.get(item.id);
     if (!entry) return;
     entry.handle?.setLabel(label);
     item.label = label;
@@ -480,7 +485,7 @@ function createTodoApp(
   function setTodoCompleted(item: Todo, completed: boolean): void {
     if (item.completed === completed) return;
 
-    const entry = list.get(item.id);
+    const entry = todos.get(item.id);
     if (!entry) return;
 
     entry.handle?.setCompleted(completed);
@@ -499,19 +504,19 @@ function createTodoApp(
   }
 
   function swapTodo(item: Todo, direction: "up" | "down"): void {
-    const entry = list.get(item.id);
+    const entry = todos.get(item.id);
     if (!entry) return;
 
     const neighborKey =
       direction === "up"
-        ? list.previousKey(item.id)
-        : list.nextKey(item.id);
+        ? todos.previousKey(item.id)
+        : todos.nextKey(item.id);
     if (neighborKey === undefined) return;
 
-    const neighbor = list.get(neighborKey)?.item;
+    const neighbor = todos.get(neighborKey)?.item;
     if (!neighbor) return;
 
-    if (!list.swapKeys(item.id, neighborKey)) return;
+    if (!todos.swapKeys(item.id, neighborKey)) return;
 
     const order = item.order;
     item.order = neighbor.order;
@@ -525,7 +530,7 @@ function createTodoApp(
   }
 
   function toggleAll(): void {
-    if (list.size === 0) {
+    if (todos.size === 0) {
       toggleAllInput.checked = false;
       return;
     }
@@ -627,7 +632,7 @@ function createTodoApp(
       id: "total-count",
       dependencies: ["todos"],
       run: () => {
-        totalCount = list.size;
+        totalCount = todos.size;
       },
     });
 
@@ -683,26 +688,6 @@ function createTodoApp(
 
   runtime.mount(h(App), container);
 
-  list = new RetainedList<Todo, HTMLElement, Node, TodoView>({
-    parent: listHost,
-    backend,
-    getKey: (item) => item.id,
-    // Rows use the same component model as the rest of the tree.
-    renderItem: (item) => <TodoItem item={item} />,
-    mountItemDescriptor: (descriptor) => {
-      const mounted = runtime.mountItem(descriptor);
-      return {
-        nodes: mounted.nodes,
-        handle: mounted.handle as TodoView | undefined,
-      };
-    },
-    detachNodes: (nodes) => {
-      for (let i = 0; i < nodes.length; i++) {
-        runtime.unmount(nodes[i], listHost);
-      }
-    },
-  });
-
   setupDerivedGraph();
 
   const stored = loadStoredTodos();
@@ -715,7 +700,7 @@ function createTodoApp(
       completed: record.completed,
       editing: false,
     };
-    list.append(item);
+    todos.append(item);
     (item.completed ? completedTodos : activeTodos).add(item);
     if (item.id >= nextId) nextId = item.id + 1;
     if (item.order >= nextOrder) nextOrder = item.order + 1;

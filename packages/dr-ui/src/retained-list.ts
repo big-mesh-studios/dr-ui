@@ -23,11 +23,15 @@ interface MutableEntry<TItem, TNode, THandle>
 }
 
 export interface RetainedListOptions<TItem, TRoot, TNode, THandle = unknown> {
-  readonly parent: TRoot | TNode;
-  readonly backend: RendererBackend<TRoot, TNode>;
   readonly getKey: (item: TItem) => string | number;
-  readonly renderItem: (item: TItem) => ElementDescriptor<any, any, THandle>;
-  readonly mountItemDescriptor: (
+  /**
+   * Mount target. Optional so a list can be created before the view exists and
+   * bound later with {@link RetainedList.attach} (this is what `<For>` does).
+   */
+  readonly parent?: TRoot | TNode;
+  readonly backend?: RendererBackend<TRoot, TNode>;
+  readonly renderItem?: (item: TItem) => ElementDescriptor<any, any, THandle>;
+  readonly mountItemDescriptor?: (
     descriptor: ElementDescriptor<any, any, THandle>,
   ) => { nodes: TNode[]; handle?: THandle };
   /**
@@ -35,6 +39,23 @@ export interface RetainedListOptions<TItem, TRoot, TNode, THandle = unknown> {
    * is detached. Pass a runtime-aware remover to also release runtime state
    * (for example, `runtime.unmount` and its retained handles).
    */
+  readonly detachNodes?: (nodes: readonly TNode[]) => void;
+}
+
+/** Late binding for {@link RetainedList.attach}. */
+export interface RetainedListAttachment<TItem, TRoot, TNode, THandle = unknown> {
+  readonly parent: TRoot | TNode;
+  /**
+   * Node that appended entries are inserted before. Defaults to appending at
+   * the end of `parent`. `<For>` uses a marker text node so the list can sit
+   * between siblings.
+   */
+  readonly anchor?: TNode | null;
+  readonly backend?: RendererBackend<TRoot, TNode>;
+  readonly renderItem?: (item: TItem) => ElementDescriptor<any, any, THandle>;
+  readonly mountItemDescriptor?: (
+    descriptor: ElementDescriptor<any, any, THandle>,
+  ) => { nodes: TNode[]; handle?: THandle };
   readonly detachNodes?: (nodes: readonly TNode[]) => void;
 }
 
@@ -51,17 +72,41 @@ export class RetainedList<TItem, TRoot, TNode, THandle = unknown> {
     string | number,
     MutableEntry<TItem, TNode, THandle>
   >();
-  private readonly opts: RetainedListOptions<TItem, TRoot, TNode, THandle>;
+  private readonly getKey: (item: TItem) => string | number;
+
+  private parentValue: TRoot | TNode | undefined;
+  private anchorValue: TNode | null = null;
+  private backendValue: RendererBackend<TRoot, TNode> | undefined;
+  private renderItemValue:
+    | ((item: TItem) => ElementDescriptor<any, any, THandle>)
+    | undefined;
+  private mountItemValue:
+    | ((
+        descriptor: ElementDescriptor<any, any, THandle>,
+      ) => { nodes: TNode[]; handle?: THandle })
+    | undefined;
+  private detachNodesValue: ((nodes: readonly TNode[]) => void) | undefined;
+
   private headEntry: MutableEntry<TItem, TNode, THandle> | null = null;
   private tailEntry: MutableEntry<TItem, TNode, THandle> | null = null;
   private count = 0;
 
   constructor(opts: RetainedListOptions<TItem, TRoot, TNode, THandle>) {
-    this.opts = opts;
+    this.getKey = opts.getKey;
+    this.parentValue = opts.parent;
+    this.backendValue = opts.backend;
+    this.renderItemValue = opts.renderItem;
+    this.mountItemValue = opts.mountItemDescriptor;
+    this.detachNodesValue = opts.detachNodes;
   }
 
   public get size(): number {
     return this.count;
+  }
+
+  /** True once a mount target is bound, either at construction or via `attach`. */
+  public get isAttached(): boolean {
+    return this.parentValue !== undefined && this.backendValue !== undefined;
   }
 
   public get first(): RetainedListEntry<TItem, TNode, THandle> | undefined {
@@ -70,6 +115,32 @@ export class RetainedList<TItem, TRoot, TNode, THandle = unknown> {
 
   public get last(): RetainedListEntry<TItem, TNode, THandle> | undefined {
     return this.tailEntry ?? undefined;
+  }
+
+  /**
+   * Bind the list to a mount target. Called once, during the mount pass, by
+   * `<For>`; entries can only be added afterwards. O(1).
+   */
+  public attach(
+    attachment: RetainedListAttachment<TItem, TRoot, TNode, THandle>,
+  ): this {
+    if (this.parentValue !== undefined) {
+      throw new Error(
+        "RetainedList is already attached; a list can only back one mount point.",
+      );
+    }
+
+    this.parentValue = attachment.parent;
+    this.anchorValue = attachment.anchor ?? null;
+    this.backendValue = attachment.backend ?? this.backendValue;
+
+    if (attachment.renderItem) this.renderItemValue = attachment.renderItem;
+    if (attachment.mountItemDescriptor) {
+      this.mountItemValue = attachment.mountItemDescriptor;
+    }
+    if (attachment.detachNodes) this.detachNodesValue = attachment.detachNodes;
+
+    return this;
   }
 
   public get(
@@ -85,10 +156,10 @@ export class RetainedList<TItem, TRoot, TNode, THandle = unknown> {
   /** Mount one item and append it to the end. O(1). */
   public append(item: TItem): RetainedListEntry<TItem, TNode, THandle> {
     const entry = this.mount(item);
-    const { backend, parent } = this.opts;
+    const { backend, parent } = this.requireMount();
 
     for (let i = 0; i < entry.nodes.length; i++) {
-      backend.insertBefore(parent, entry.nodes[i], null);
+      backend.insertBefore(parent, entry.nodes[i], this.anchorValue);
     }
 
     entry.prev = this.tailEntry;
@@ -106,8 +177,8 @@ export class RetainedList<TItem, TRoot, TNode, THandle = unknown> {
   /** Mount one item and insert it at the front. O(1). */
   public prepend(item: TItem): RetainedListEntry<TItem, TNode, THandle> {
     const entry = this.mount(item);
-    const { backend, parent } = this.opts;
-    const anchor = this.headEntry?.nodes[0] ?? null;
+    const { backend, parent } = this.requireMount();
+    const anchor = this.headEntry?.nodes[0] ?? this.anchorValue;
 
     for (let i = 0; i < entry.nodes.length; i++) {
       backend.insertBefore(parent, entry.nodes[i], anchor);
@@ -148,14 +219,14 @@ export class RetainedList<TItem, TRoot, TNode, THandle = unknown> {
     const b = this.entries.get(keyB);
     if (!a || !b) return false;
 
-    const { backend, parent } = this.opts;
+    const { backend, parent } = this.requireMount();
 
     // Temporary anchors let us exchange two arbitrary (including adjacent)
     // node groups without needing to know which one comes first.
     const markerA = backend.createTextNode("");
     const markerB = backend.createTextNode("");
-    backend.insertBefore(parent, markerA, a.nodes[0] ?? null);
-    backend.insertBefore(parent, markerB, b.nodes[0] ?? null);
+    backend.insertBefore(parent, markerA, a.nodes[0] ?? this.anchorValue);
+    backend.insertBefore(parent, markerB, b.nodes[0] ?? this.anchorValue);
 
     for (let i = 0; i < a.nodes.length; i++) {
       backend.insertBefore(parent, a.nodes[i], markerB);
@@ -230,13 +301,33 @@ export class RetainedList<TItem, TRoot, TNode, THandle = unknown> {
     }
   }
 
+  private requireMount(): {
+    backend: RendererBackend<TRoot, TNode>;
+    parent: TRoot | TNode;
+  } {
+    if (this.parentValue === undefined || this.backendValue === undefined) {
+      throw new Error(
+        "RetainedList is not attached yet; mount it with <For each={list}> or call attach().",
+      );
+    }
+    return { backend: this.backendValue, parent: this.parentValue };
+  }
+
   private mount(item: TItem): MutableEntry<TItem, TNode, THandle> {
-    const key = this.opts.getKey(item);
+    const key = this.getKey(item);
     if (this.entries.has(key)) {
       throw new Error(`RetainedList already contains key "${String(key)}".`);
     }
 
-    const mounted = this.opts.mountItemDescriptor(this.opts.renderItem(item));
+    const renderItem = this.renderItemValue;
+    const mountItemDescriptor = this.mountItemValue;
+    if (!renderItem || !mountItemDescriptor) {
+      throw new Error(
+        "RetainedList has no renderer; pass renderItem and mountItemDescriptor to attach().",
+      );
+    }
+
+    const mounted = mountItemDescriptor(renderItem(item));
     return {
       key,
       item,
@@ -268,10 +359,10 @@ export class RetainedList<TItem, TRoot, TNode, THandle = unknown> {
     this.entries.delete(entry.key);
     this.count--;
 
-    if (this.opts.detachNodes) {
-      this.opts.detachNodes(entry.nodes);
+    if (this.detachNodesValue) {
+      this.detachNodesValue(entry.nodes);
     } else {
-      const { backend, parent } = this.opts;
+      const { backend, parent } = this.requireMount();
       for (let i = 0; i < entry.nodes.length; i++) {
         const node = entry.nodes[i];
         backend.removeChild(parent, node);

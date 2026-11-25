@@ -50,6 +50,44 @@ Components are plain functions. The runtime calls each one exactly once during
 `runtime.mount(h(App), container)`, and `handle` callbacks capture the DOM refs
 that later mutations update. Nothing re-runs after the mount pass.
 
+### `<For>`
+
+`<For>` is the declarative mount point for a `RetainedList`. It looks like
+Solid's `<For>`, but it does not diff an array — the list itself is the change
+channel, so row inserts, removals and swaps stay O(1):
+
+```tsx
+const todos = new RetainedList<Todo, HTMLElement, Node, TodoView>({
+  getKey: (todo) => todo.id,
+});
+
+function Main() {
+  return (
+    <ul class="todo-list">
+      <For each={todos}>{(item: Todo) => <TodoItem item={item} />}</For>
+    </ul>
+  );
+}
+
+// actions mutate the collection directly
+todos.append(todo);
+todos.remove(todo.id);
+todos.swapKeys(todo.id, neighborKey);
+```
+
+`<For>` renders no wrapper element: it leaves a marker text node at its
+position and inserts rows before it, so it composes with siblings. The render
+function runs once per item, when that item is inserted. There is no `index`
+argument, because maintaining one after an O(1) removal would require walking
+the list.
+
+If you need to seed from an array, that is an explicit one-time O(n) pass rather
+than the default path:
+
+```tsx
+for (const todo of todosFromArray) todos.append(todo);
+```
+
 ### Complexity
 
 | Operation | Cost |
