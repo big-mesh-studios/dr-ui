@@ -1,0 +1,26 @@
+{
+  "name": "@big-mesh-studios/dr-ui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/dr-ui.js",
+      "require": "./dist/dr-ui.cjs"
+    }
+  },
+  "main": "./dist/dr-ui.cjs",
+  "module": "./dist/dr-ui.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "vite build",
+    "check-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@typescript/typescript6": "^6.0.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-dts": "^5.1.2"
+  }
+}

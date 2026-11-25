@@ -1,0 +1,9 @@
+{
+  "name": "my-monorepo",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
+
