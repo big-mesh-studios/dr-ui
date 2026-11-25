@@ -25,6 +25,31 @@ clear completed, hash-based filters, and per-row `localStorage` persistence.
 It also supports `Alt` + `↑` / `↓` to reorder a row, which exercises the O(1)
 swap operation.
 
+### View
+
+The demo is written as JSX and compiled directly to Dr. UI's `h()` factory
+(classic JSX pragma via `demos/todo-list/vite.config.ts` and `tsconfig.json`).
+It reads like Solid while still building one retained descriptor tree:
+
+```tsx
+function App() {
+  return h(
+    Fragment,
+    null,
+    <section class="todoapp">
+      <Header />
+      <Main />
+      <Footer />
+    </section>,
+    <Info />,
+  );
+}
+```
+
+Components are plain functions. The runtime calls each one exactly once during
+`runtime.mount(h(App), container)`, and `handle` callbacks capture the DOM refs
+that later mutations update. Nothing re-runs after the mount pass.
+
 ### Complexity
 
 | Operation | Cost |
